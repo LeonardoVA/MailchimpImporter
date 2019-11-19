@@ -16,5 +16,6 @@ jobs:
         pip3 install wheel
         sudo apt-get install -y python3-setuptools
         pip3 install pylint
+        echo "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ Installed pylint now"
+        which pylint        
         pylint **/*.py
-        echo test, and deploy your project.
