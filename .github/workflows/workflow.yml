@@ -13,5 +13,6 @@ jobs:
       run: echo Hello, world!
     - name: Run a multi-line script
       run: |
+        which python
         pylint **/*.py
         echo test, and deploy your project.
