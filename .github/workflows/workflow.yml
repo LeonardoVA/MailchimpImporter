@@ -18,5 +18,6 @@ jobs:
         pip3 install pylint
         echo "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ Installed pylint now"
         pip3 show pylint
+        EXPORT PATH=$PATH:/home/runner/.local/lib/python3.6/site-packages
         which pylint        
         pylint **/*.py
