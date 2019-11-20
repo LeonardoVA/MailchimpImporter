@@ -1,6 +1,11 @@
-import requests, pprint, os, json
+"""Contains MailchimpImporter class"""
+import pprint
+import json
+import requests
 
 class MailchimpImporter:
+    """class handles making requests to retreive mailchimp data for multiple
+    companies possibly with multiple lists (as defined in the config file passed in)"""
 
     def __init__(self, config_file_path):
         self.config_file_path = config_file_path
@@ -9,10 +14,10 @@ class MailchimpImporter:
         if response.status_code == 200:
             self.process_request_data(response)
             return True
-        else:
-            print(f"Error making response to url: {response.url} with api key: {api_key}.\n"
-                  f"See response: {response.status_code} {response.text}")
-            return False
+
+        print(f"Error making response to url: {response.url} with api key: {api_key}.\n"
+              f"See response: {response.status_code} {response.text}")
+        return False
 
 
     def process_request_data(self, request_response):
@@ -40,7 +45,7 @@ class MailchimpImporter:
             total_items = response.json()['total_items']
             # We just got the first 1000, count will still be 1000
             while count < total_items:
-                offset_url= f"&offset={count}"
+                offset_url = f"&offset={count}"
                 response = requests.get(mailchimp_url+offset_url, auth=auth_tuple)
                 self.check_and_process_response(response, api_key)
                 count += 1000
@@ -81,4 +86,3 @@ if __name__ == "__main__":
     default_config_file = "company_mail_lists/company_mail_list_1.json"
     mailchimp_importer = MailchimpImporter(default_config_file)
     mailchimp_importer.start_import()
-
