@@ -15,15 +15,35 @@ class MailchimpImporter:
     def __init__(self, config_file_path):
         self.config_file_path = config_file_path
 
+    def send_transformed_data(self, data, endpoint="http://ec2-34-242-147-110.eu-west-1.compute.amazonaws.com:8080/record"):
+
+        if not data:
+            print("No Data to send since last sync for this part of the list")
+            return
+
+        print(f"Attepting to send data to endpoint: {endpoint}")
+        api_key = ""
+        headers={'Authorization': api_key}
+        res = requests.post(endpoint, data=json.dumps(data), headers=headers)
+        print(f"\nresponse: {res.text}\n"
+              f"data tried: {json.dumps(data)}\n")
+
+
+
     def set_off_cloudwatch_alarm(self, alarm_string):
         """set off cloudwatch alarm"""
         print("Here we would set off the aws cloudwatch alarm, which would be "
-              "plugged into sns to inform ometria of a failure in the system"
-              f"example alarm string {alarm_string}")
+              "plugged into sns to inform ometria of a failure in the system.\n "
+              f"Example alarm string: {alarm_string}")
 
     def check_and_process_response(self, response, api_key):
         if response.status_code == 200:
             ometria_formated_data = self.process_request_data(response)
+
+            print(f"Finished transformed data: {ometria_formated_data}")
+
+            self.send_transformed_data(ometria_formated_data)
+
 
             # This true is just to check if the initial request returned a 200 it doesn't
             # guarantee success later on it designed to fail gracefully for some things
@@ -47,8 +67,8 @@ class MailchimpImporter:
         transformed_list_data = []
         for x, list_entry in enumerate(request_response.json()['members']):
             # Do processing for now just print
-            print(f"\nEntry number {x}\n")
-            pprint.pprint(list_entry)
+            print(f"\nEntry number {x+1}\n")
+            #pprint.pprint(list_entry)
             # transform data in ometria friendly format
             try:
                 transformed_entry = {"id":list_entry['id'],
@@ -69,7 +89,7 @@ class MailchimpImporter:
     def create_url(self, count, list_id):
         mailchimp_partial_resquest_url = "?fields=members.email_address,members.id," \
                                          "members.status,members.merge_fields," \
-                                         f"members.last_changed,total_items&count=1"
+                                         f"members.last_changed,total_items&count=2"
         partial_sync_url = ""
         if not FULL_SYNC:
             try:
@@ -109,7 +129,7 @@ class MailchimpImporter:
                 count += 1000
             # Now write datetime file so that we can filter further requests for incremental sync
             time = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S+00:00.')
-            print(f"Finished getting this mail list! count was around {count} "
+            print(f"Finished getting this mail list! count was up to {count} "
                   f"and time is {time}")
             self.write_json_file(time, f"{self.config_file_path}.time")
 
@@ -129,10 +149,11 @@ class MailchimpImporter:
         return mail_list_data
 
     def retreive_contact_data(self, mail_list_data):
-        print(mail_list_data)
+        print(f"Config file to use for this import:\n {mail_list_data}")
         for company in mail_list_data['Companys']:
-            print(f"Processing lists for company: {company['Name']}")
-            for mail_list in company['Mail_Lists']:
+            print(f"\nProcessing lists for company: {company['Name']}")
+            for count, mail_list in enumerate(company['Mail_Lists']):
+                print(f"\nProcessing list {count+1}\n")
                 self.get_mail_list(mail_list['list_id'], mail_list['api_key'])
 
 
