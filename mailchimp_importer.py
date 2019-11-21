@@ -1,6 +1,9 @@
 """Contains MailchimpImporter class"""
 import pprint
 import json
+import argparse
+import os
+from datetime import datetime
 import requests
 
 class MailchimpImporter:
@@ -26,13 +29,25 @@ class MailchimpImporter:
             print(f"\nMember number {x}\n")
             pprint.pprint(member)
 
-    def make_request(self, list_id, api_key):
-        count = 1000
-        mailchimp_partial_response_url = "?"\
+    def create_url(self, count, list_id):
+        mailchimp_partial_resquest_url = "?" \
                                          "fields=members.email_address,members.id,members.status,members.merge_fields," \
-                                         f"total_items&count={count}"
-        mailchimp_url = f"https://us9.api.mailchimp.com/3.0/lists/{list_id}/members{mailchimp_partial_response_url}"
+                                         f"members.last_changed,total_items&count=1"
+        partial_sync_url = ""
+        if not FULL_SYNC:
+             last_run_json = self.read_json_file(f"{self.config_file_path}.time")
+
+             partial_sync_url = f"&since_last_changed={last_run_json['Time']}"
+        mailchimp_url = f"https://us9.api.mailchimp.com/3.0/lists/{list_id}" \
+                        f"/members{mailchimp_partial_resquest_url}{partial_sync_url}"
+        return mailchimp_url
+
+    def get_mail_list(self, list_id, api_key):
+        count = 1000
+
         auth_tuple = ("", api_key)
+
+        mailchimp_url = self.create_url(count, list_id)
 
         response = requests.get(mailchimp_url, auth=auth_tuple)
 
@@ -41,7 +56,6 @@ class MailchimpImporter:
         # Check if we got all the list entries or there is more to do
         if response_success:
 
-            pprint.pprint(response.json())
             total_items = response.json()['total_items']
             # We just got the first 1000, count will still be 1000
             while count < total_items:
@@ -49,17 +63,22 @@ class MailchimpImporter:
                 response = requests.get(mailchimp_url+offset_url, auth=auth_tuple)
                 self.check_and_process_response(response, api_key)
                 count += 1000
+            time = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S+00:00.')
+            print(f"Finished getting this mail list! count was around {count} "
+                  f"and time is {time}")
+            self.write_json_file(time, f"{self.config_file_path}.time")
 
 
+    def write_json_file(self, time, file_name):
+        with open(file_name, "w") as json_file:
+            json.dump({"Time":time}, json_file)
 
 
-
-
-    def read_company_mail_lists(self):
+    def read_json_file(self, file_name):
         """Be wary this method will load the contents of the files in
         the mail list directory into memory"""
 
-        with open(self.config_file_path) as mail_list_json_file:
+        with open(file_name) as mail_list_json_file:
             mail_list_data = json.load(mail_list_json_file)
 
         return mail_list_data
@@ -69,12 +88,12 @@ class MailchimpImporter:
         for company in mail_list_data['Companys']:
             print(f"Processing lists for company: {company['Name']}")
             for mail_list in company['Mail_Lists']:
-                self.make_request(mail_list['list_id'], mail_list['api_key'])
+                self.get_mail_list(mail_list['list_id'], mail_list['api_key'])
 
 
     def start_import(self):
         """"""
-        mail_list_data = self.read_company_mail_lists()
+        mail_list_data = self.read_json_file(self.config_file_path)
         self.retreive_contact_data(mail_list_data)
 
 
@@ -83,6 +102,11 @@ class MailchimpImporter:
 
 
 if __name__ == "__main__":
+    # The most common SYNC_TYPE will be Incr
+    FULL_SYNC = os.getenv("FULL_SYNC")
+    if FULL_SYNC:
+        print("Full sync detected!")
+
     default_config_file = "company_mail_lists/company_mail_list_1.json"
     mailchimp_importer = MailchimpImporter(default_config_file)
     mailchimp_importer.start_import()
