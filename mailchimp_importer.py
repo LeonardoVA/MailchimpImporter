@@ -3,7 +3,9 @@ import pprint
 import json
 import argparse
 import os
+import sys
 from datetime import datetime
+
 import requests
 
 class MailchimpImporter:
@@ -13,33 +15,75 @@ class MailchimpImporter:
     def __init__(self, config_file_path):
         self.config_file_path = config_file_path
 
+    def set_off_cloudwatch_alarm(self, alarm_string):
+        """set off cloudwatch alarm"""
+        print("Here we would set off the aws cloudwatch alarm, which would be "
+              "plugged into sns to inform ometria of a failure in the system"
+              f"example alarm string {alarm_string}")
+
     def check_and_process_response(self, response, api_key):
         if response.status_code == 200:
-            self.process_request_data(response)
+            ometria_formated_data = self.process_request_data(response)
+
+            # This true is just to check if the initial request returned a 200 it doesn't
+            # guarantee success later on it designed to fail gracefully for some things
+            # and continue trying the rest
             return True
 
-        print(f"Error making response to url: {response.url} with api key: {api_key}.\n"
-              f"See response: {response.status_code} {response.text}")
+        error_string = f"Error making response to url: {response.url} with api key: {api_key}.\n"\
+                       f"See response: {response.status_code} {response.text}"
+
+        self.set_off_cloudwatch_alarm(error_string)
         return False
 
 
     def process_request_data(self, request_response):
-        for x, member in enumerate(request_response.json()['members']):
+        """
+
+        :param request_response:
+        :return: returns either the transformed data or false if it wasn't
+        able to transform this section of the list
+        """
+        transformed_list_data = []
+        for x, list_entry in enumerate(request_response.json()['members']):
             # Do processing for now just print
-            print(f"\nMember number {x}\n")
-            pprint.pprint(member)
+            print(f"\nEntry number {x}\n")
+            pprint.pprint(list_entry)
+            # transform data in ometria friendly format
+            try:
+                transformed_entry = {"id":list_entry['id'],
+                                    "firstname": list_entry['merge_fields']['FNAME'],
+                                    "lastname": list_entry['merge_fields']['LNAME'],
+                                    "email": list_entry['email_address'],
+                                    "status": list_entry['status']}
+
+                transformed_list_data.append(transformed_entry)
+            except KeyError as key_error:
+                print("Error: There was an issue transforming data to ometria format for entry:")
+                pprint.pprint(list_entry)
+                return False
+
+        return transformed_list_data
+
 
     def create_url(self, count, list_id):
-        mailchimp_partial_resquest_url = "?" \
-                                         "fields=members.email_address,members.id,members.status,members.merge_fields," \
+        mailchimp_partial_resquest_url = "?fields=members.email_address,members.id," \
+                                         "members.status,members.merge_fields," \
                                          f"members.last_changed,total_items&count=1"
         partial_sync_url = ""
         if not FULL_SYNC:
-             last_run_json = self.read_json_file(f"{self.config_file_path}.time")
-
-             partial_sync_url = f"&since_last_changed={last_run_json['Time']}"
+            try:
+               last_run_json = self.read_json_file(f"{self.config_file_path}.time")
+            except FileNotFoundError:
+                print("Please ensure you have run a full sync before running incremental "
+                      f"Last known run time file could not be found: {self.config_file_path}.time")
+                sys.exit(1)
+            # If we are doing a partial sync request only things that have changed since then
+            # to cut down on data
+            partial_sync_url = f"&since_last_changed={last_run_json['Time']}"
         mailchimp_url = f"https://us9.api.mailchimp.com/3.0/lists/{list_id}" \
                         f"/members{mailchimp_partial_resquest_url}{partial_sync_url}"
+
         return mailchimp_url
 
     def get_mail_list(self, list_id, api_key):
@@ -63,6 +107,7 @@ class MailchimpImporter:
                 response = requests.get(mailchimp_url+offset_url, auth=auth_tuple)
                 self.check_and_process_response(response, api_key)
                 count += 1000
+            # Now write datetime file so that we can filter further requests for incremental sync
             time = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S+00:00.')
             print(f"Finished getting this mail list! count was around {count} "
                   f"and time is {time}")
@@ -102,7 +147,8 @@ class MailchimpImporter:
 
 
 if __name__ == "__main__":
-    # The most common SYNC_TYPE will be Incr
+    # Env variable over cmdline so that it can be one container image and just pass in
+    # different env vars in the task settings for AWS ECS
     FULL_SYNC = os.getenv("FULL_SYNC")
     if FULL_SYNC:
         print("Full sync detected!")
